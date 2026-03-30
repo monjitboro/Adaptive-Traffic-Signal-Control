@@ -42,3 +42,6 @@ env/
 # Project-specific artifacts (rebuild easily)
 sample-code/logs/
 sample-code/models/
+
+# Documentation (generated/temporary briefing)
+SIMPLE_PROJECT_BRIEF.md

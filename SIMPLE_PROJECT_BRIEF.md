@@ -32,6 +32,16 @@ From current evaluated checkpoints:
 Recent improvement attempts did not beat the original A2C.
 So right now we should keep original A2C as the main baseline.
 
+The A2C metrics tell you how well the traffic light control model performed:
+
+Mean reward = -1.0083: The reward function penalizes waiting vehicles (negative queue count). A value of -1.0083 is good because it means the model kept the queue small. (Negative rewards are intentional here—the goal is to minimize waiting, so the reward reflects that.)
+
+Queue = 8.07: On average, 8 vehicles were waiting at the intersection during testing. This is the key metric for traffic efficiency—fewer waiting vehicles = better traffic flow.
+
+Travel time = 83.5s: Vehicles spent an average of 83.5 seconds from arrival to departure at the intersection. This is how long it takes a car to completely pass through or leave the intersection area.
+
+In practical terms: The A2C model got traffic moving reasonably well—only ~8 cars stacking up and taking ~84 seconds per vehicle on average. This beat the other algorithms (PPO had 9.67 cars waiting, DQN had 13.6), making A2C the best performer for this single intersection.
+
 ## 4) What do we do next?
 
 1. Keep original A2C as the reference model.
