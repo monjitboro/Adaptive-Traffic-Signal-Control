@@ -32,12 +32,26 @@ def evaluate_one(model, env):
     }
 
 
-def run_eval(algo, model_path, config, scenario, num_step, decision_interval, episodes):
+def run_eval(
+    algo,
+    model_path,
+    config,
+    scenario,
+    num_step,
+    decision_interval,
+    episodes,
+    reward_mode,
+    reward_delay_coef,
+    reward_switch_coef,
+):
     env = CityFlowSingleIntersectionEnv(
         config_path=config,
         scenario_name=scenario,
         num_step=num_step,
         decision_interval=decision_interval,
+        reward_mode=reward_mode,
+        reward_delay_coef=reward_delay_coef,
+        reward_switch_coef=reward_switch_coef,
     )
 
     if algo == "ppo":
@@ -68,15 +82,39 @@ def main():
     parser.add_argument("--decision_interval", type=int, default=5)
     parser.add_argument("--out", type=str, default="logs/eval_summary.json")
     parser.add_argument("--extra_ppo_model", type=str, default="")
+    parser.add_argument(
+        "--reward_mode",
+        type=str,
+        default="queue",
+        choices=CityFlowSingleIntersectionEnv.SUPPORTED_REWARD_MODES,
+    )
+    parser.add_argument("--reward_delay_coef", type=float, default=0.5)
+    parser.add_argument("--reward_switch_coef", type=float, default=0.1)
+    parser.add_argument("--experiment_tag", type=str, default="")
     args = parser.parse_args()
 
+    name_parts = [args.scenario]
+    if args.reward_mode != "queue":
+        name_parts.append(args.reward_mode)
+    if args.experiment_tag:
+        name_parts.append(args.experiment_tag)
+    experiment_name = "_".join(name_parts)
+
     model_specs = {
-        "dqn": os.path.join(args.models_dir, f"dqn_{args.scenario}.zip"),
-        "ppo": os.path.join(args.models_dir, f"ppo_{args.scenario}.zip"),
-        "a2c": os.path.join(args.models_dir, f"a2c_{args.scenario}.zip"),
+        "dqn": os.path.join(args.models_dir, f"dqn_{experiment_name}.zip"),
+        "ppo": os.path.join(args.models_dir, f"ppo_{experiment_name}.zip"),
+        "a2c": os.path.join(args.models_dir, f"a2c_{experiment_name}.zip"),
     }
 
-    results = {}
+    results = {
+        "_meta": {
+            "scenario": args.scenario,
+            "reward_mode": args.reward_mode,
+            "reward_delay_coef": args.reward_delay_coef,
+            "reward_switch_coef": args.reward_switch_coef,
+            "experiment_name": experiment_name,
+        }
+    }
     for algo, model_path in model_specs.items():
         if not os.path.exists(model_path):
             results[algo] = {"error": f"missing model: {model_path}"}
@@ -90,6 +128,9 @@ def main():
             num_step=args.num_step,
             decision_interval=args.decision_interval,
             episodes=args.episodes,
+            reward_mode=args.reward_mode,
+            reward_delay_coef=args.reward_delay_coef,
+            reward_switch_coef=args.reward_switch_coef,
         )
 
     if args.extra_ppo_model:
@@ -102,11 +143,16 @@ def main():
                 num_step=args.num_step,
                 decision_interval=args.decision_interval,
                 episodes=args.episodes,
+                reward_mode=args.reward_mode,
+                reward_delay_coef=args.reward_delay_coef,
+                reward_switch_coef=args.reward_switch_coef,
             )
         else:
             results["ppo_tuned"] = {"error": f"missing model: {args.extra_ppo_model}"}
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    out_dir = os.path.dirname(args.out)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
 

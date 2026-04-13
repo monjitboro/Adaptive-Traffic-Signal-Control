@@ -13,14 +13,33 @@ except ImportError:
 
 class CityFlowSingleIntersectionEnv(gym.Env):
     metadata = {"render_modes": []}
+    SUPPORTED_REWARD_MODES = ("queue", "queue_delay", "queue_switch", "hybrid")
 
-    def __init__(self, config_path, scenario_name, num_step=3600, decision_interval=5):
+    def __init__(
+        self,
+        config_path,
+        scenario_name,
+        num_step=3600,
+        decision_interval=5,
+        reward_mode="queue",
+        reward_delay_coef=0.5,
+        reward_switch_coef=0.1,
+    ):
         super().__init__()
 
         self.config_path = config_path
         self.scenario_name = scenario_name
         self.num_step = num_step
         self.decision_interval = decision_interval
+        self.reward_mode = reward_mode
+        self.reward_delay_coef = float(reward_delay_coef)
+        self.reward_switch_coef = float(reward_switch_coef)
+
+        if self.reward_mode not in self.SUPPORTED_REWARD_MODES:
+            raise ValueError(
+                f"Unsupported reward_mode={reward_mode!r}. "
+                f"Choose from {self.SUPPORTED_REWARD_MODES}."
+            )
 
         self.current_step = 0
         self.eng = None
@@ -90,6 +109,24 @@ class CityFlowSingleIntersectionEnv(gym.Env):
     def _make_engine(self):
         self.eng = cityflow.Engine(self.config_path, thread_num=1)
 
+    def _collect_metrics(self):
+        lane_waiting = self.eng.get_lane_waiting_vehicle_count()
+        lane_vehicle = self.eng.get_lane_vehicle_count()
+
+        total_queue = float(sum(lane_waiting.get(lane_id, 0) for lane_id in self.incoming_lanes))
+        total_vehicles = float(sum(lane_vehicle.get(lane_id, 0) for lane_id in self.incoming_lanes))
+        incoming_lane_count = max(1, len(self.incoming_lanes))
+
+        return {
+            "total_queue": total_queue,
+            "avg_queue": total_queue / incoming_lane_count,
+            # CityFlow does not expose a direct per-step delay term here,
+            # so we use the waiting/occupancy ratio as a delay proxy.
+            "delay_proxy": total_queue / max(1.0, total_vehicles),
+            "total_vehicles": total_vehicles,
+            "avg_travel_time": float(self.eng.get_average_travel_time()),
+        }
+
     def _get_obs(self):
         lane_waiting = self.eng.get_lane_waiting_vehicle_count()
 
@@ -107,25 +144,42 @@ class CityFlowSingleIntersectionEnv(gym.Env):
 
         return obs
 
-    def _get_reward(self):
-        lane_waiting = self.eng.get_lane_waiting_vehicle_count()
-        total_queue = sum(lane_waiting.get(lane_id, 0) for lane_id in self.incoming_lanes)
+    def _get_reward(self, metrics, phase_changed):
+        queue_term = float(metrics["avg_queue"])
+        delay_term = float(metrics["delay_proxy"])
+        switch_term = float(phase_changed)
 
-        # Start simple: minimize queue length
-        reward = -float(total_queue) / max(1, len(self.incoming_lanes))
-        return reward
+        if self.reward_mode == "queue":
+            total_penalty = queue_term
+        elif self.reward_mode == "queue_delay":
+            total_penalty = queue_term + self.reward_delay_coef * delay_term
+        elif self.reward_mode == "queue_switch":
+            total_penalty = queue_term + self.reward_switch_coef * switch_term
+        else:
+            total_penalty = (
+                queue_term
+                + self.reward_delay_coef * delay_term
+                + self.reward_switch_coef * switch_term
+            )
 
-    def _get_info(self):
-        lane_waiting = self.eng.get_lane_waiting_vehicle_count()
-        lane_vehicle = self.eng.get_lane_vehicle_count()
+        reward_terms = {
+            "queue_term": queue_term,
+            "delay_term": delay_term,
+            "switch_term": switch_term,
+        }
+        return -float(total_penalty), reward_terms
 
-        total_queue = sum(lane_waiting.get(lane_id, 0) for lane_id in self.incoming_lanes)
-        total_vehicles = sum(lane_vehicle.get(lane_id, 0) for lane_id in self.incoming_lanes)
-
+    def _get_info(self, metrics, reward_terms, phase_changed):
         return {
-            "queue": float(total_queue),
-            "vehicles": float(total_vehicles),
-            "avg_travel_time": float(self.eng.get_average_travel_time())
+            "queue": float(metrics["total_queue"]),
+            "vehicles": float(metrics["total_vehicles"]),
+            "avg_travel_time": float(metrics["avg_travel_time"]),
+            "reward_mode": self.reward_mode,
+            "delay_proxy": float(metrics["delay_proxy"]),
+            "phase_changed": float(phase_changed),
+            "reward_queue_term": float(reward_terms["queue_term"]),
+            "reward_delay_term": float(reward_terms["delay_term"]),
+            "reward_switch_term": float(reward_terms["switch_term"]),
         }
 
     def reset(self, seed=None, options=None):
@@ -141,11 +195,19 @@ class CityFlowSingleIntersectionEnv(gym.Env):
         self.eng.set_tl_phase(self.intersection_id, init_phase)
 
         obs = self._get_obs()
-        info = self._get_info()
+        metrics = self._collect_metrics()
+        reward_terms = {
+            "queue_term": float(metrics["avg_queue"]),
+            "delay_term": float(metrics["delay_proxy"]),
+            "switch_term": 0.0,
+        }
+        info = self._get_info(metrics, reward_terms, phase_changed=0.0)
         return obs, info
 
     def step(self, action):
-        self.current_phase_pos = int(action)
+        action = int(action)
+        phase_changed = float(action != self.current_phase_pos)
+        self.current_phase_pos = action
         phase_id = self.valid_phases[self.current_phase_pos]
 
         self.eng.set_tl_phase(self.intersection_id, phase_id)
@@ -155,8 +217,9 @@ class CityFlowSingleIntersectionEnv(gym.Env):
             self.current_step += 1
 
         obs = self._get_obs()
-        reward = self._get_reward()
-        info = self._get_info()
+        metrics = self._collect_metrics()
+        reward, reward_terms = self._get_reward(metrics, phase_changed)
+        info = self._get_info(metrics, reward_terms, phase_changed)
 
         terminated = self.current_step >= self.num_step
         truncated = False
