@@ -99,6 +99,41 @@ python evaluate_rl.py --algo a2c --model_path models/a2c_hangzhou_1x1_bc-tyc_180
 - TensorBoard logs already exist in `sample-code/logs/`.
 - Main remaining work is improving performance through hyperparameter tuning, reward shaping, and multi-seed evaluation.
 
+## Report-Ready Experiment Plan
+
+For the final report, the project now supports two clean experiment phases:
+
+### Phase 1: Fair Algorithm Comparison
+
+- Train **DQN, PPO, and A2C** with the same queue-only reward.
+- This isolates the effect of the RL algorithm.
+- Use this phase to answer: **which algorithm performs best under the same objective?**
+
+### Phase 2: Reward Function Comparison
+
+- Keep the best baseline algorithm (**A2C**) fixed.
+- Retrain A2C with multiple reward functions:
+  - `queue`: queue-only baseline
+  - `queue_delay`: queue + delay proxy penalty
+  - `queue_switch`: queue + phase-switch penalty
+  - `hybrid`: queue + delay proxy + phase-switch penalty
+- This isolates the effect of reward design.
+- Use this phase to answer: **which reward function gives the best traffic behavior?**
+
+The reward logic is now configurable in `sample-code/cityflow_env.py`, and the report runner is:
+
+```bash
+cd sample-code
+python run_report_experiments.py --phase phase1
+python run_report_experiments.py --phase phase2
+```
+
+To actually run the experiments instead of only printing commands:
+
+```bash
+python run_report_experiments.py --phase all --execute
+```
+
 ## Project Management Plan
 
 Our project follows a structured 6-week plan divided into 4 phases:
@@ -122,6 +157,7 @@ Our project follows a structured 6-week plan divided into 4 phases:
   - PPO: learning_rate=3e-4, n_steps=512, gamma=0.99, gae_lambda=0.95
   - A2C: learning_rate=7e-4, gamma=0.99, gae_lambda=1.0
 - Created evaluation pipeline measuring mean reward, queue length, and travel time.
+- Added reward-ablation support for report experiments (`queue`, `queue_delay`, `queue_switch`, `hybrid`).
 
 ### Phase 3: Training & Testing on Single Intersection (Weeks 3–4)
 **Objective**: Train and test RL models on single-intersection scenarios; identify best performer.
@@ -133,9 +169,9 @@ Our project follows a structured 6-week plan divided into 4 phases:
 - **Testing & Evaluation**:
   - Evaluated all models over 3 deterministic episodes.
   - **Results**:
-    - **A2C (BEST)**: Mean reward = -1.0083, Queue = 8.07, Travel time = 83.5s ⭐
-    - **PPO**: Mean reward = -1.2071, Queue = 9.66, Travel time = 86.6s
-    - **DQN**: Mean reward = -1.7026, Queue = 13.62, Travel time = 100.9s
+    - **A2C (BEST)**: Mean reward = -1.2087, Queue = 9.67, Travel time = 89.0s ⭐
+    - **PPO**: Mean reward = -1.2510, Queue = 10.01, Travel time = 89.6s
+    - **DQN**: Mean reward = -1.7799, Queue = 14.24, Travel time = 103.1s
 - Generated TensorBoard logs tracking training progress for all models.
 - Confirmed A2C as best baseline for single-intersection control.
 
@@ -161,37 +197,96 @@ Our project follows a structured 6-week plan divided into 4 phases:
 ## Plain-Language Snapshot
 
 - Goal: use RL to control one traffic signal better than a fixed signal plan.
-- What works now: training, evaluation, and comparison for DQN, PPO, and A2C on one intersection.
-- Best result so far: original A2C model.
-- What did not improve: tuned PPO and continued-training variants in the last run.
+- What works now: Phase 1 algorithm comparison and Phase 2 reward-ablation experiments on one intersection.
+- Best algorithm under the same queue-only reward: A2C.
+- Best reward design on A2C so far: hybrid reward (queue + delay proxy + phase-switch penalty).
+- Fixed-signal baseline comparison is now available and shows a large improvement from RL on this scenario.
+- What still needs to be added for a stronger claim: multi-seed validation.
 
-## Measured Results (Hangzhou 1x1)
+## Measured Results (Hangzhou 1x1, Completed Docker Run)
 
-Using 3 deterministic evaluation episodes from `sample-code/evaluate_all_models.py`:
+### Phase 1: Algorithm Comparison Under Queue-Only Reward
+
+Using 3 deterministic evaluation episodes from `sample-code/logs/phase1_hangzhou_1x1_bc-tyc_18041607_1h_summary.json`:
 
 | Model | Mean Reward (higher better) | Mean Queue (lower better) | Final Avg Travel Time (lower better) |
 |---|---:|---:|---:|
-| DQN (original) | -1.7026 | 13.6208 | 100.9892 |
-| PPO (original) | -1.2071 | 9.6569 | 86.6261 |
-| A2C (original) | -1.0083 | 8.0667 | 83.5011 |
-| PPO tuned (new) | -9.0469 | 72.3750 | 296.6677 |
+| DQN | -1.7799 | 14.2389 | 103.1061 |
+| PPO | -1.2510 | 10.0083 | 89.6347 |
+| A2C | -1.2087 | 9.6694 | 89.0352 |
 
-Current best checkpoint is still A2C original:
+Phase 1 conclusion:
 
-- `sample-code/models/a2c_hangzhou_1x1_bc-tyc_18041607_1h.zip`
+- A2C was the best algorithm when all three models used the same queue-only reward.
+- PPO was close, but A2C had both lower queue and lower travel time.
+- DQN was clearly worse on this scenario.
 
-### Notes on additional experiments
+### Phase 2: Reward Ablation on A2C
 
-- PPO tuned checkpoint and best-callback checkpoint were both significantly worse than baseline PPO.
-- A2C continuation and DQN continuation were also worse than their original checkpoints.
-- Recommendation: keep original A2C as production baseline and run further tuning with reward shaping + multi-seed validation.
+Using `sample-code/logs/phase2_a2c_hangzhou_1x1_bc-tyc_18041607_1h_reward_summary.json`:
+
+| Reward Mode | Mean Reward | Mean Queue (lower better) | Final Avg Travel Time (lower better) |
+|---|---:|---:|---:|
+| queue | -1.2944 | 10.3556 | 90.0352 |
+| queue_delay | -1.5055 | 10.8556 | 90.4026 |
+| queue_switch | -1.1715 | 8.7472 | 85.3994 |
+| hybrid | -1.1822 | 7.8431 | 83.2976 |
+
+Phase 2 conclusion:
+
+- The `hybrid` reward gave the best traffic outcome by queue length and travel time.
+- `queue_switch` was second best and also improved over queue-only reward.
+- `queue_delay` performed worse than queue-only on this setup.
+
+### Fixed-Signal Baseline Comparison
+
+Using `sample-code/logs/fixed_signal_baseline_hangzhou_1x1_bc-tyc_18041607_1h.json`:
+
+| Controller | Comparable Mean Reward (queue-only) | Mean Queue (lower better) | Final Avg Travel Time (lower better) |
+|---|---:|---:|---:|
+| Fixed signal plan | -6.6407 | 53.1256 | 385.1585 |
+| A2C with queue reward | -1.2087 | 9.6694 | 89.0352 |
+| A2C with hybrid reward | -1.1822* | 7.8431 | 83.2976 |
+
+\* The hybrid reward uses a different formula, so its reward value is not directly comparable to the fixed-signal queue-only reward. Queue and travel time are the reliable comparison metrics here.
+
+Baseline comparison conclusion:
+
+- The fixed signal plan performed much worse than the RL controllers on this scenario.
+- Compared with the fixed plan, A2C under the queue-only setup reduced mean queue by about **81.8%** and reduced average travel time by about **76.9%**.
+- Compared with the fixed plan, A2C with the hybrid reward reduced mean queue by about **85.2%** and reduced average travel time by about **78.4%**.
+- This closes the earlier reporting gap: on this scenario, the RL controller did improve over the original fixed traffic-signal plan.
+
+Important note:
+
+- Mean reward values are only directly comparable within the same reward definition.
+- Across different reward modes, the more reliable comparison is queue length and travel time.
+- So the honest takeaway is:
+  - best algorithm = A2C
+  - best reward design = hybrid
+  - RL beats the fixed-signal baseline on this scenario
 
 ## Suggested Next Improvements
 
-- Add a single script to evaluate all models and write a JSON/CSV leaderboard.
-- Add tuned variants (especially PPO) with larger rollout horizon and longer training.
+- Repeat the fixed-signal baseline and RL evaluation over multiple seeds or repeated runs for stronger statistical support.
 - Add repeated evaluation over multiple seeds for stable comparison.
-- Add reward ablations (queue-only vs queue+delay+phase-change penalties).
+- Tune the hybrid-reward A2C setup now that it is the best current configuration.
+- Extend the same experiment framework to larger intersections.
+
+## Reward Modes
+
+The single-intersection environment supports these reward modes:
+
+- `queue`: `-(average incoming-lane queue)`
+- `queue_delay`: `-(queue + 0.5 * delay_proxy)`
+- `queue_switch`: `-(queue + 0.1 * phase_change)`
+- `hybrid`: `-(queue + 0.5 * delay_proxy + 0.1 * phase_change)`
+
+Notes:
+
+- `delay_proxy` is the ratio of queued vehicles to vehicles present on incoming lanes.
+- `phase_change` is `1` when the agent changes the signal phase at a decision step, otherwise `0`.
+- Default coefficients are `reward_delay_coef=0.5` and `reward_switch_coef=0.1`, both configurable from the CLI.
 
 ## Codebase Health Check (March 30, 2026)
 
