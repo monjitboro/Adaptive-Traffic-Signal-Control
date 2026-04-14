@@ -16,7 +16,7 @@ class TrafficEnvironment:
         self.prev_vehicles  = 0
 
         # Increased min green time
-        self.min_green_time = 15
+        self.min_green_time = 10
 
         self.lane_ids = list(self.eng.get_lane_waiting_vehicle_count().keys())
 
@@ -32,11 +32,11 @@ class TrafficEnvironment:
         self.action_size = 2
 
         # Stronger reward weights
-        self.w_queue      = 1.0
-        self.w_delay      = 0.5
-        self.w_throughput = 0.3
-        self.w_pressure   = 0.1
-        self.w_switch     = 0.1
+        self.w_queue      = 0.6   # was 0.4
+        self.w_delay      = 0.2   # was 0.3
+        self.w_throughput = 0.1   # was 0.2
+        self.w_pressure   = 0.05
+        self.w_switch     = 0.05
 
         print("Environment initialized")
         print("  Intersection  : {}".format(self.intersection_id))
@@ -93,29 +93,28 @@ class TrafficEnvironment:
         duration_state = np.array([min(self.phase_duration / 30.0, 1.0)], dtype=np.float32)
         return np.concatenate([queue_state, phase_state, duration_state])
 
-    def _calculate_reward(self, waiting_before, waiting_after,vehicles_before, vehicles_after, switched):
+    def _calculate_reward(self, waiting_before, waiting_after, vehicles_before, vehicles_after, switched):
+        # Component 1 - Queue
+        queue_reward = (waiting_before - waiting_after) / 20.0
 
-        # Component 1 - Queue (strong signal)
-        queue_reward = (waiting_before - waiting_after) * 2.0
-
-        # Component 2 - Delay penalty
+        # Component 2 - Delay
         vehicle_speeds = self.eng.get_vehicle_speed()
-        delayed        = sum(1 for s in vehicle_speeds.values() if s < 0.1)
-        delay_reward   = -delayed * 0.5
+        delayed = sum(1 for s in vehicle_speeds.values() if s < 0.1)
+        delay_reward = -delayed / 20.0
 
-        # Component 3 - Throughput reward
-        throughput        = max(0, vehicles_before - vehicles_after)
-        throughput_reward = throughput * 1.0
+        # Component 3 - Throughput
+        throughput = max(0, vehicles_before - vehicles_after)
+        throughput_reward = throughput / 10.0
 
-        # Component 4 - Pressure penalty
+        # Component 4 - Pressure
         waiting_counts = list(self.eng.get_lane_waiting_vehicle_count().values())
         if len(waiting_counts) >= 2:
-            pressure = -(max(waiting_counts) - min(waiting_counts)) * 0.3
+            pressure = -(max(waiting_counts) - min(waiting_counts)) / 20.0
         else:
             pressure = 0
 
         # Component 5 - Switch penalty
-        switch_reward = -2.0 if switched else 0.0
+        switch_reward = -0.1 if switched else 0.0
 
         total_reward = (
             self.w_queue      * queue_reward      +
@@ -125,7 +124,7 @@ class TrafficEnvironment:
             self.w_switch     * switch_reward
         )
         return total_reward
-
+    
     def _switch_phase(self):
         self.current_phase = (self.current_phase + 1) % 4
         self.eng.set_tl_phase(self.intersection_id, self.current_phase)

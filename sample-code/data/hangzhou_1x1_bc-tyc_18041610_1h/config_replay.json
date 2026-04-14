@@ -7,5 +7,5 @@
     "rlTrafficLight": true,
     "saveReplay": true,
     "roadnetLogFile": "roadnet_log.json",
-    "replayLogFile": "replay_ep500.txt"
+    "replayLogFile": "replay_ep1.txt"
 }

@@ -13,14 +13,14 @@ from dqn_agent import DQNAgent
 TRAIN_CONFIG    = "data/hangzhou_1x1_bc-tyc_18041610_1h/config.json"
 VAL_CONFIG      = "data/hangzhou_1x1_bc-tyc_18041608_1h/config.json"
 NUM_EPISODES    = 1000
-NUM_STEPS       = 3600
-VALIDATE_EVERY  = 100
+NUM_STEPS       = 1800
+VALIDATE_EVERY  = 50
 SAVE_DIR        = "DQN/models"
 LOG_DIR         = "DQN/logs"
 REPLAY_DIR      = "DQN/replays"
 
 # Save replay at these episodes to visualize improvement
-SAVE_REPLAY_AT  = [1, 100, 250, 500, 1000]
+SAVE_REPLAY_AT  = [1, 50, 100, 250, 500]
 
 # Create folders
 os.makedirs(SAVE_DIR,   exist_ok=True)

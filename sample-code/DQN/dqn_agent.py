@@ -9,11 +9,11 @@ class DQNNetwork(nn.Module):
     def __init__(self, state_size, action_size):
         super(DQNNetwork, self).__init__()
         self.network = nn.Sequential(
-            nn.Linear(state_size, 128),
+            nn.Linear(state_size, 64),
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(64, 64),
             nn.ReLU(),
-            nn.Linear(128, action_size)
+            nn.Linear(64, action_size)
         )
 
     def forward(self, x):
@@ -24,17 +24,16 @@ class DQNAgent:
         self.state_size  = state_size
         self.action_size = action_size
 
-        # Better hyperparameters
-        self.gamma         = 0.99
+        self.gamma         = 0.95    # reduced from 0.99
         self.epsilon       = 1.0
-        self.epsilon_min   = 0.01
-        self.epsilon_decay = 0.998
-        self.lr            = 0.0005
-        self.batch_size    = 64
-        self.target_update = 20
+        self.epsilon_min   = 0.05
+        self.epsilon_decay = 0.995
+        self.lr            = 0.0001  # reduced from 0.0005
+        self.batch_size    = 32
+        self.target_update = 10
         self.update_counter = 0
 
-        self.memory = deque(maxlen=20000)
+        self.memory = deque(maxlen=10000)
 
         self.device       = torch.device("cpu")
         self.model        = DQNNetwork(state_size, action_size).to(self.device)
@@ -45,9 +44,9 @@ class DQNAgent:
         print("\nDQN Agent initialized")
         print("  State size   : {}".format(state_size))
         print("  Action size  : {}".format(action_size))
-        print("  Network      : {} -> 128 -> 128 -> {}".format(state_size, action_size))
+        print("  Network      : {} -> 64 -> 64 -> {}".format(state_size, action_size))
         print("  Batch size   : {}".format(self.batch_size))
-        print("  Memory size  : 20000")
+        print("  Memory size  : 10000")
         print("  Epsilon      : {}".format(self.epsilon))
         print("  LR           : {}".format(self.lr))
         print("  Gamma        : {}".format(self.gamma))
@@ -85,6 +84,10 @@ class DQNAgent:
         loss = self.criterion(current_q.squeeze(), target_q)
         self.optimizer.zero_grad()
         loss.backward()
+
+        # ── Gradient clipping (prevents explosion) ──
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+
         self.optimizer.step()
 
         self.update_counter += 1
